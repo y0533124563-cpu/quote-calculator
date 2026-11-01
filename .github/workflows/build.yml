@@ -11,6 +11,8 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v5
+
       - name: Create project files
         run: |
           mkdir -p "."
@@ -39,8 +41,16 @@ jobs:
                   applicationId "com.quote.calculator"
                   minSdk 21
                   targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
+                  versionCode 2
+                  versionName "1.1"
+              }
+              signingConfigs {
+                  debug {
+                      storeFile file('../app.jks')
+                      storePassword 'quote12345'
+                      keyAlias 'app'
+                      keyPassword 'quote12345'
+                  }
               }
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
@@ -120,7 +130,7 @@ jobs:
           mkdir -p "app/src/main/java/com/quote/calculator"
           cat > "app/src/main/java/com/quote/calculator/MainActivity.java" <<'ENDOFFILE'
           package com.quote.calculator;
-          
+
           import android.app.Activity;
           import android.app.DownloadManager;
           import android.content.Context;
@@ -150,43 +160,44 @@ jobs:
           import android.widget.ProgressBar;
           import android.widget.TextView;
           import android.widget.Toast;
-          
+
           public class MainActivity extends Activity {
-          
+
               private static final String START_URL = "https://ruddy-print-job-go.base44.app/QuoteCalculator";
               private static final String HOST = "ruddy-print-job-go.base44.app";
               private static final int FILE_REQUEST = 1001;
-          
+
               private WebView webView;
               private ProgressBar progress;
               private LinearLayout offlineView;
               private ValueCallback<Uri[]> fileCallback;
-          
+
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
-          
+
                   FrameLayout root = new FrameLayout(this);
+                  rootLayout = root;
                   root.setBackgroundColor(Color.WHITE);
-          
+
                   webView = new WebView(this);
                   root.addView(webView, new FrameLayout.LayoutParams(
                           ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-          
+
                   progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
                   progress.setMax(100);
                   FrameLayout.LayoutParams pp = new FrameLayout.LayoutParams(
                           ViewGroup.LayoutParams.MATCH_PARENT, dp(4));
                   pp.gravity = Gravity.TOP;
                   root.addView(progress, pp);
-          
+
                   offlineView = buildOfflineView();
                   offlineView.setVisibility(View.GONE);
                   root.addView(offlineView, new FrameLayout.LayoutParams(
                           ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-          
+
                   setContentView(root);
-          
+
                   WebSettings s = webView.getSettings();
                   s.setJavaScriptEnabled(true);
                   s.setDomStorageEnabled(true);
@@ -196,27 +207,29 @@ jobs:
                   s.setSupportZoom(false);
                   s.setMediaPlaybackRequiresUserGesture(false);
                   s.setJavaScriptCanOpenWindowsAutomatically(true);
-          
+                  s.setSupportMultipleWindows(true);
+                  s.setUserAgentString(browserUserAgent(s.getUserAgentString()));
+
                   CookieManager.getInstance().setAcceptCookie(true);
                   CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
-          
+
                   webView.setWebViewClient(new WebViewClient() {
                       @Override
                       public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                           return handleUrl(request.getUrl());
                       }
-          
+
                       @Override
                       public void onPageStarted(WebView view, String url, Bitmap favicon) {
                           progress.setVisibility(View.VISIBLE);
                       }
-          
+
                       @Override
                       public void onPageFinished(WebView view, String url) {
                           progress.setVisibility(View.GONE);
                           CookieManager.getInstance().flush();
                       }
-          
+
                       @Override
                       public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                           if (request.isForMainFrame()) {
@@ -224,13 +237,20 @@ jobs:
                           }
                       }
                   });
-          
+
                   webView.setWebChromeClient(new WebChromeClient() {
                       @Override
                       public void onProgressChanged(WebView view, int newProgress) {
                           progress.setProgress(newProgress);
                       }
-          
+
+                      @Override
+                      public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture,
+                                                    android.os.Message resultMsg) {
+                          openPopup(resultMsg);
+                          return true;
+                      }
+
                       @Override
                       public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
                                                        FileChooserParams params) {
@@ -245,7 +265,7 @@ jobs:
                           return true;
                       }
                   });
-          
+
                   webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, length) -> {
                       if (url.startsWith("blob:") || url.startsWith("data:")) {
                           Toast.makeText(this, "לא ניתן להוריד את הקובץ הזה מתוך האפליקציה", Toast.LENGTH_LONG).show();
@@ -265,25 +285,71 @@ jobs:
                           openExternal(Uri.parse(url));
                       }
                   });
-          
+
                   if (savedInstanceState != null) {
                       webView.restoreState(savedInstanceState);
                   } else {
                       loadStart();
                   }
               }
-          
+
+              private FrameLayout rootLayout;
+              private WebView popup;
+
+              private static String browserUserAgent(String ua) {
+                  return ua.replace("; wv)", ")").replaceAll("Version/\\d+(\\.\\d+)* ", "");
+              }
+
+              private void openPopup(android.os.Message resultMsg) {
+                  closePopup();
+                  popup = new WebView(this);
+                  WebSettings ps = popup.getSettings();
+                  ps.setJavaScriptEnabled(true);
+                  ps.setDomStorageEnabled(true);
+                  ps.setJavaScriptCanOpenWindowsAutomatically(true);
+                  ps.setUserAgentString(webView.getSettings().getUserAgentString());
+                  CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true);
+                  popup.setWebViewClient(new WebViewClient() {
+                      @Override
+                      public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                          return handleUrl(request.getUrl());
+                      }
+                  });
+                  popup.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onCloseWindow(WebView window) {
+                          closePopup();
+                      }
+                  });
+                  rootLayout.addView(popup, new FrameLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                  WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
+                  transport.setWebView(popup);
+                  resultMsg.sendToTarget();
+              }
+
+              private void closePopup() {
+                  if (popup != null) {
+                      rootLayout.removeView(popup);
+                      popup.destroy();
+                      popup = null;
+                  }
+              }
+
               private boolean handleUrl(Uri uri) {
                   String scheme = uri.getScheme() == null ? "" : uri.getScheme();
                   String host = uri.getHost() == null ? "" : uri.getHost();
                   if ((scheme.equals("http") || scheme.equals("https"))
-                          && (host.equals(HOST) || host.endsWith("base44.app") || host.endsWith("base44.com"))) {
+                          && (host.equals(HOST) || host.endsWith("base44.app") || host.endsWith("base44.com")
+                              || host.equals("google.com") || host.endsWith(".google.com")
+                              || host.endsWith(".google.co.il") || host.endsWith("gstatic.com")
+                              || host.endsWith("googleusercontent.com") || host.endsWith("googleapis.com"))) {
                       return false; // stay inside the app
                   }
                   openExternal(uri); // WhatsApp, phone, email, other sites
                   return true;
               }
-          
+
               private void openExternal(Uri uri) {
                   try {
                       startActivity(new Intent(Intent.ACTION_VIEW, uri));
@@ -291,7 +357,7 @@ jobs:
                       Toast.makeText(this, "אין אפליקציה שיכולה לפתוח את הקישור", Toast.LENGTH_SHORT).show();
                   }
               }
-          
+
               private void loadStart() {
                   if (isOnline()) {
                       offlineView.setVisibility(View.GONE);
@@ -300,28 +366,28 @@ jobs:
                       offlineView.setVisibility(View.VISIBLE);
                   }
               }
-          
+
               private boolean isOnline() {
                   ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
                   if (cm == null) return true;
                   NetworkInfo ni = cm.getActiveNetworkInfo();
                   return ni != null && ni.isConnected();
               }
-          
+
               private LinearLayout buildOfflineView() {
                   LinearLayout box = new LinearLayout(this);
                   box.setOrientation(LinearLayout.VERTICAL);
                   box.setGravity(Gravity.CENTER);
                   box.setBackgroundColor(Color.WHITE);
                   box.setPadding(dp(32), dp(32), dp(32), dp(32));
-          
+
                   TextView t = new TextView(this);
                   t.setText("אין חיבור לאינטרנט");
                   t.setTextSize(22);
                   t.setTextColor(Color.parseColor("#1E3A8A"));
                   t.setGravity(Gravity.CENTER);
                   box.addView(t);
-          
+
                   TextView sub = new TextView(this);
                   sub.setText("בדוק את החיבור ונסה שוב");
                   sub.setTextSize(16);
@@ -329,7 +395,7 @@ jobs:
                   sub.setGravity(Gravity.CENTER);
                   sub.setPadding(0, dp(8), 0, dp(24));
                   box.addView(sub);
-          
+
                   Button retry = new Button(this);
                   retry.setText("נסה שוב");
                   retry.setOnClickListener(v -> {
@@ -339,11 +405,11 @@ jobs:
                   box.addView(retry);
                   return box;
               }
-          
+
               private int dp(int v) {
                   return Math.round(v * getResources().getDisplayMetrics().density);
               }
-          
+
               @Override
               protected void onActivityResult(int requestCode, int resultCode, Intent data) {
                   if (requestCode == FILE_REQUEST && fileCallback != null) {
@@ -353,10 +419,12 @@ jobs:
                   }
                   super.onActivityResult(requestCode, resultCode, data);
               }
-          
+
               @Override
               public void onBackPressed() {
-                  if (offlineView.getVisibility() == View.VISIBLE) {
+                  if (popup != null) {
+                      if (popup.canGoBack()) popup.goBack(); else closePopup();
+                  } else if (offlineView.getVisibility() == View.VISIBLE) {
                       super.onBackPressed();
                   } else if (webView.canGoBack()) {
                       webView.goBack();
@@ -364,13 +432,13 @@ jobs:
                       super.onBackPressed();
                   }
               }
-          
+
               @Override
               protected void onSaveInstanceState(Bundle outState) {
                   super.onSaveInstanceState(outState);
                   webView.saveState(outState);
               }
-          
+
               @Override
               protected void onPause() {
                   super.onPause();

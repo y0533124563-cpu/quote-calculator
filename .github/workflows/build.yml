@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -410,3 +413,11 @@ jobs:
         with:
           name: QuoteCalculator-APK
           path: QuoteCalculator.apk
+
+      - name: Publish download link
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: QuoteCalculator APK
+          files: QuoteCalculator.apk
+          make_latest: true
